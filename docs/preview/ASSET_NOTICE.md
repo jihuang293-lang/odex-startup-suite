@@ -1,0 +1,13 @@
+# 预览素材说明
+
+首页的五条悟示例使用本地已安装的 Wallpaper Engine 场景「咒术回战 五条悟」，Workshop ID **3021850803**。
+
+- 壁纸项目：[Steam Workshop 页面](https://steamcommunity.com/sharedfiles/filedetails/?id=3021850803)。
+- 本地项目元数据注明的原画作者：**patrika**；原画来源链接为 https://wall.alphacoders.com/big.php?i=1325724 。
+- 本地项目说明的发布者为「孟婆干杯」，并注明转载需保留原画信息、勿作商用。
+
+这些壁纸画面的权利属于原权利人，不随本项目代码的 MIT 许可证重新授权。仓库仅提供功能效果预览，不附 `scene.pkg`、完整视频、音轨或 Workshop 项目。使用者应自行从原项目获取壁纸，并遵守原作者要求。
+
+`wallpaper-link.png` 中的来源画面采自 Wallpaper Engine 场景渲染，开场为本项目实际渲染。右侧是明确标注的 Codex 背景界面布局示意，使用虚构的通用占位文案，不是实机界面截图。它是功能效果对照，不是一次完整启动的同步录像，未截取真实聊天或桌面。场景在开场中使用加载后的预览图，在 Codex 背景中由 Wallpaper Engine 实时渲染。
+
+预览工具在没有指定壁纸时绘制的星球示例背景为本项目原创，可按项目 MIT 许可证使用。

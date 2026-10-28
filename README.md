@@ -1,26 +1,43 @@
 # Codex Startup Suite
 
-Windows 版 Codex 的社区启动工具：统一代理与皮肤启动、跟随壁纸的开场动画，以及 Wallpaper Engine 场景壁纸桥接。
+把 **Wallpaper Engine 的视频动态壁纸和场景壁纸导入 Codex**：同一张壁纸，贯穿开场动画与应用背景。支持 Windows，并提供代理、皮肤和动画的统一启动入口。
 
 这不是 OpenAI 官方项目。当前是 **v0.1.0 预览版**，适用于 Windows 11 x64、Microsoft Store 版 Codex 和 Codex Dynamic Skin **1.7.3**。代理入口要求已开启本机 HTTP 系统代理，不需要 TUN；它不保证服务端或代理节点永不重连。
 
-## 效果预览
+## 核心效果：Wallpaper Engine → 开场动画 → Codex 背景
 
-下面由程序实际渲染，使用项目原创示例背景。安装后背景会跟随当前皮肤；动图演示动画阶段，实际启动等待由应用就绪状态决定。
+![同一张五条悟 Wallpaper Engine 场景用于开场动画和 Codex 背景](docs/preview/wallpaper-link.png)
+
+上图使用「五条悟」场景壁纸：左侧为 Wallpaper Engine 场景渲染画面，中间为程序实际渲染的开场动画，右侧为 **Codex 背景的界面布局示意**，展示同一张壁纸用于两处的效果。示意图不含真实聊天，也不是实机界面截图；实际应用内场景播放已经过本机验证。
+
+| Wallpaper Engine 壁纸类型 | 导入皮肤管理器 | 开场动画 | Codex 应用背景 |
+| --- | --- | --- | --- |
+| 视频动态壁纸（Video） | 支持本地扫描、导入到主页、应用 | 跟随当前视频壁纸 | 动态视频播放 |
+| 场景壁纸（Scene） | 支持本地扫描、导入到主页、应用 | 使用自动生成的场景预览图制作开场动画 | 由 Wallpaper Engine 实时渲染播放 |
+
+**场景支持由本项目补做的通用桥接组件提供**：复用本机 Wallpaper Engine 渲染场景，将动态画面交给 Codex 的背景层，无需逐张录制或转换成 MP4。组件还兼容部分采用 `gifscene.pkg` 名称的场景包，并处理本地流传输和播放器退出。
+
+新下载的视频与场景，在重新打开管理器的 **Wallpaper Engine** 列表时会自动扫描识别；然后选择 **导入到主页 → 应用到 Codex**。这是自动识别、手动导入，不会在后台自动切换皮肤。运行场景时保持 Wallpaper Engine 和皮肤管理器开启。
+
+## 五条壁纸的开场效果
+
+下面是程序使用同一张五条场景预览渲染的动画阶段。实际启动等待由应用就绪状态决定；场景在开场中使用预览图，应用内使用实时场景。
 
 ![Codex 开场动画动态预览](docs/preview/animation-preview.gif)
 
 ![初始化、粒子散开、轮廓重组和欢迎文字四阶段](docs/preview/animation-overview.png)
 
-可使用 `scripts/Render-Preview.ps1 -FfmpegPath "C:\Tools\ffmpeg.exe"` 重新生成。预览不包含真实聊天、个人壁纸或桌面画面。
+可使用 `scripts/Render-Preview.ps1 -FfmpegPath "C:\Tools\ffmpeg.exe" -PosterPath "C:\Previews\scene.jpg"` 重新生成动画预览。未提供 `PosterPath` 时使用原创示例背景。五条壁纸来源与画面权利说明见 [预览素材说明](docs/preview/ASSET_NOTICE.md)；仓库不附完整壁纸原素材。
 
 ## 功能
 
-- 保留本机代理参数和皮肤调试参数，统一启动应用。
+- 扫描并导入 Wallpaper Engine 的视频动态壁纸和场景壁纸，应用到 Codex 皮肤。
+- 开场跟随当前选中的 Wallpaper Engine 壁纸；更换皮肤后自动读取新素材。
+- 新增场景桥接组件，场景由 Wallpaper Engine 实时渲染，无需逐张转视频。
 - 英文科技感字幕、多阶段开场、进度条和贴合应用窗口的淡出交接；不显示 Esc 按钮，仍可按 Esc 跳过。
-- 每次读取当前皮肤的图片或视频；场景壁纸的开场使用本机生成的预览图。
-- 使用正版 Wallpaper Engine 渲染场景，在 Codex 背景播放；默认 1280×720、15 FPS，无需逐张录制。
+- 场景背景默认输出 1280×720、15 FPS；鼠标交互不转发给壁纸。
 - 每次打开管理器的 Wallpaper Engine 列表重新扫描。新场景是**自动识别、手动导入**，不在后台自动切换皮肤。
+- 保留本机代理参数和皮肤调试参数，统一启动应用。
 
 ## 安装
 
@@ -67,4 +84,4 @@ powershell.exe -NoProfile -File .\Test.ps1
 powershell.exe -NoProfile -File .\scripts\Pack.ps1
 ```
 
-源码模块：`codex-proxy`（统一入口）、`dragon-codex-boot`（动画）、`codex-scene-bridge`（场景桥接）。不包含官方 Codex 安装包、第三方管理器、FFmpeg 二进制或任何个人壁纸。许可证与上游来源见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+源码模块：`codex-proxy`（统一入口）、`dragon-codex-boot`（动画）、`codex-scene-bridge`（场景桥接）。不包含官方 Codex 安装包、第三方管理器、FFmpeg 二进制或完整壁纸素材。许可证与上游来源见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
