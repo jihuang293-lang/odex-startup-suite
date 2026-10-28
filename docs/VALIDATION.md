@@ -1,0 +1,11 @@
+# Validation scope
+
+The installed prototype was tested on one Windows 11 x64 machine with Store Codex, Codex Dynamic Skin 1.7.3 and Wallpaper Engine 2.8.42. The prototype rendered and decoded 25 downloaded Scene wallpapers. One scene was additionally verified inside the actual Codex background: decoded frames advanced; switching back restored video playback; shutting down removed the component's transport adapter and child processes. These observations are not a promise of compatibility with every future scene, driver or application release.
+
+The distributable source is separately rebuilt and checked with `Test.ps1`: PowerShell syntax, animation configuration and geometry, media changes and scene poster lookup, proxy argument/environment preservation, restart decisions, blocked-animation fallback, portable paths with spaces, scene package alias guards and Node stream scope/cleanup. Tests use local fixtures and do not restart Codex or read chats.
+
+The installer validates the pinned manager and FFmpeg file digests before writing. `Install.ps1 -CheckOnly` checks available inputs and target conflicts without installing or creating desktop shortcuts. The new public installer has not been demonstrated on a second clean PC. This release should remain a preview until that has been done.
+
+For this release, the offline suite passed locally with 27 animation configuration/geometry assertions, 10 media resolver assertions, 17 proxy checks, cinematic placement/readiness fixtures, scoped transport tests and valid/invalid scene package fixtures. `Install.ps1 -CheckOnly` and an installation into the independent release folder using `-NoShortcuts` also passed with the pinned locally available dependencies. Neither check changed the active installation or restarted an app. The new online dependency download path is subject to network availability and is not covered by those offline results.
+
+Release ZIP contents are selected from reviewed Git source files plus only three locally built executables. The package includes per-file `SHA256SUMS.json`, and excludes dependencies, user media, Workshop content, profiles, state, runtime logs, backups and original-machine diagnostic reports. Both PowerShell 5.1 and Chinese strings are supported using UTF-8 BOM in scripts.

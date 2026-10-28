@@ -1,0 +1,22 @@
+name: Windows build and offline checks
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Build and test
+        shell: powershell
+        run: .\Test.ps1
+      - name: Package
+        shell: powershell
+        run: .\scripts\Pack.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: codex-startup-suite-windows-x64
+          path: dist/*.zip
