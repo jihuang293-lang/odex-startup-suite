@@ -4,6 +4,16 @@ Windows 版 Codex 的社区启动工具：统一代理与皮肤启动、跟随�
 
 这不是 OpenAI 官方项目。当前是 **v0.1.0 预览版**，适用于 Windows 11 x64、Microsoft Store 版 Codex 和 Codex Dynamic Skin **1.7.3**。代理入口要求已开启本机 HTTP 系统代理，不需要 TUN；它不保证服务端或代理节点永不重连。
 
+## 效果预览
+
+下面由程序实际渲染，使用项目原创示例背景。安装后背景会跟随当前皮肤；动图演示动画阶段，实际启动等待由应用就绪状态决定。
+
+![Codex 开场动画动态预览](docs/preview/animation-preview.gif)
+
+![初始化、粒子散开、轮廓重组和欢迎文字四阶段](docs/preview/animation-overview.png)
+
+可使用 `scripts/Render-Preview.ps1 -FfmpegPath "C:\Tools\ffmpeg.exe"` 重新生成。预览不包含真实聊天、个人壁纸或桌面画面。
+
 ## 功能
 
 - 保留本机代理参数和皮肤调试参数，统一启动应用。

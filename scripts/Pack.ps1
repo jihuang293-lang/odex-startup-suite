@@ -10,6 +10,7 @@ $files=@(& git -c ('safe.directory='+$root.Replace('\','/')) -C $root ls-files)
 if ($LASTEXITCODE -ne 0 -or $files.Count -lt 10) { throw 'Initialize and stage the reviewed source files in Git before packing.' }
 foreach ($relative in $files) {
     if ($relative -like 'downloads/*') { continue }
+    if ($relative -like 'docs/preview/*') { continue }
     if ($relative -match '(?i)(^|/)(qa|logs|media|tools|dependencies|dist|backup[^/]*)(/|$)|\.(exe|dll|mp4|jpg|png|log|zip|7z)$') { throw ('Unexpected publish input: '+$relative) }
     $target=Assert-ChildPath (Join-Path $stage $relative) $stage
     New-Item -ItemType Directory -Path (Split-Path -Parent $target) -Force | Out-Null
