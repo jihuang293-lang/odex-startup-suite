@@ -4,6 +4,7 @@
   "WelcomeTitle": "Welcome back to Codex.",
   "WelcomeSubtitle": "Let’s build what’s next.",
   "FollowSkin": true,
+  "AutoAesthetics": true,
   "FitToClient": true,
   "CustomVideo": "",
   "TransitionMode": "Cinematic",

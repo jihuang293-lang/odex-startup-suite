@@ -15,8 +15,8 @@ internal static class GeometryTests {
  public static int Main(string[] args) {
   try {
    Config c=new JavaScriptSerializer().Deserialize<Config>(File.ReadAllText(args[0]));Entry.ValidateConfig(c);
-   Check(!c.AutoReplaceEntrypoints&&!c.ScanAllLocalDrives&&!c.LaunchClient,"Suite defaults preserve existing launch ownership");
-   Check(!new Config().AutoReplaceEntrypoints&&!new Config().ScanAllLocalDrives,"Missing settings do not enable integration");
+   Check(!c.AutoReplaceEntrypoints&&!c.ScanAllLocalDrives&&!c.LaunchClient,"Public defaults preserve external startup ownership");
+   Check(!new Config().AutoReplaceEntrypoints&&!new Config().ScanAllLocalDrives,"Missing legacy settings retain safe defaults");
    string legacy=File.ReadAllText(args[0]).Replace("\"AutoReplaceEntrypoints\": false,","").Replace("\"ScanAllLocalDrives\": false,","");
    Check(!new JavaScriptSerializer().Deserialize<Config>(legacy).AutoReplaceEntrypoints,"Legacy JSON retains safe default");
    Check(!new JavaScriptSerializer().Deserialize<Config>("{\"AutoReplaceEntrypoints\":false}").AutoReplaceEntrypoints,"Explicit opt-out is retained");

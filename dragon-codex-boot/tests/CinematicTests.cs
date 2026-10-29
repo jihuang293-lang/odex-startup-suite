@@ -8,6 +8,22 @@ class CinematicTests {
   try {
    var c=new JavaScriptSerializer().Deserialize<Config>(File.ReadAllText(args[0]));
    c.TransitionMode="Cinematic";Entry.ValidateConfig(c);
+   string signalRoot=Path.GetFullPath(Path.Combine(Path.GetTempPath(),"codex-ready-signal-test"));
+   string originalSignal=c.ReadyFile,selectedMedia=c.Video;
+   Entry.ApplyStartupReadySignal(c,signalRoot,new string[]{"--runtime-config"});
+   Check(c.ReadyFile==originalSignal,"Standalone playback retains its configured signal");
+   string sessionSignal=Path.Combine(signalRoot,"client-ready."+Guid.NewGuid().ToString("N")+".flag");
+   Entry.ApplyStartupReadySignal(c,signalRoot,new string[]{"--runtime-config","--ready-file",sessionSignal});
+   Check(c.ReadyFile==sessionSignal&&c.Video==selectedMedia,"Per-launch signal survives live-media refresh without changing the wallpaper");
+   foreach(string[] invalid in new string[][] {
+    new string[]{"--ready-file"},
+    new string[]{"--ready-file",sessionSignal,"--ready-file",sessionSignal},
+    new string[]{"--ready-file",Path.Combine(signalRoot,"client-ready.flag")},
+    new string[]{"--ready-file",Path.Combine(Path.GetDirectoryName(signalRoot),Path.GetFileName(sessionSignal))}
+   }) {
+    bool invalidSignal=false;try{Entry.ApplyStartupReadySignal(c,signalRoot,invalid);}catch(ArgumentException){invalidSignal=true;}
+    Check(invalidSignal,"Reject shared, foreign, malformed or ambiguous readiness signals");
+   }
    Check(CinematicTiming.ExitAt(c)>=10.2,"Sequence must finish before the shutter");
    c.MinimumSeconds=20;Check(CinematicTiming.ExitAt(c)==20,"Longer user duration must be retained");
    string[] expected={"pulse","identity","dispersing","drawing","colorize","portrait"};

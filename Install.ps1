@@ -31,6 +31,7 @@ foreach ($relative in $owned.Keys) {
 foreach ($relative in @('dragon-codex-boot\CodexCinematicBoot.exe','dragon-codex-boot\DragonCodexBoot.exe')) {
     if (-not (Test-Path -LiteralPath (Join-Path $PSScriptRoot $relative))) { throw 'Build the animation before installing.' }
 }
+if(-not(Test-Path -LiteralPath (Join-Path $PSScriptRoot 'codex-proxy\CodexStartupNetwork.dll'))){throw 'Build the native startup helper before installing.'}
 if ($CheckOnly) { 'PASS: installation inputs and destination paths validated; nothing written.'; return }
 foreach ($relative in $owned.Keys) {
     $target = Join-Path $PSScriptRoot $relative

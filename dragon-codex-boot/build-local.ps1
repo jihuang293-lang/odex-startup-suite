@@ -14,6 +14,7 @@ $arguments += Join-Path $PSScriptRoot 'src\DragonCodexBoot.cs'
 $arguments += Join-Path $PSScriptRoot 'src\SettingsWindow.cs'
 $arguments += Join-Path $PSScriptRoot 'src\MediaResolver.cs'
 $arguments += Join-Path $PSScriptRoot 'src\CinematicScene.cs'
+$arguments += Join-Path $PSScriptRoot 'src\AestheticAnalyzer.cs'
 & $compiler @arguments
 if ($LASTEXITCODE -ne 0) { throw 'Dragon local integration build failed.' }
 ('Built ' + $OutputName + ' with external startup and skin-readiness gate.')

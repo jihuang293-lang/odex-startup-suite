@@ -33,6 +33,9 @@ internal static class MediaResolverTests {
    File.WriteAllText(theme,serializer.Serialize(new {id="scene",image="second.mp4",media=new {type="scene",workshopId="12345"}}));
    Check(MediaResolver.Resolve(config,animation,theme).MediaPath==poster,"Scene poster was not preferred.");
    Check(MediaResolver.Resolve(config,animation+Path.DirectorySeparatorChar,theme).MediaPath==poster,"Trailing animation directory separator broke scene poster lookup.");
+   Check(MediaResolver.Resolve(config,animation,theme).IsScene,"Scene lost its trusted-poster requirement.");
+   File.WriteAllText(theme,serializer.Serialize(new {id="scene",image="second.mp4",media=new {type="scene",workshopId="12345",proxy="media-cache/smooth.mp4"}}));
+   Check(MediaResolver.Resolve(config,animation,theme).MediaPath==poster,"A video proxy displaced the scene's rendered-poster path.");
    File.WriteAllText(theme,serializer.Serialize(new {id="scene",image="second.mp4",media=new {type="scene",workshopId="../12345"}}));
    Check(MediaResolver.Resolve(config,animation,theme).MediaPath==second,"Invalid scene ID escaped the poster cache.");
    Console.WriteLine("PASS: "+checks+" live wallpaper, proxy-cache, stale-path and preference-preservation checks.");return 0;

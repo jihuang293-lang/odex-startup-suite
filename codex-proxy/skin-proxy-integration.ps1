@@ -1,6 +1,14 @@
 ﻿# Loaded after the original Dream Skin common functions. Keep its verified
 # Store executable and lifecycle checks; change only how the child is launched.
 . (Join-Path $PSScriptRoot 'proxy-network.ps1')
+. (Join-Path $PSScriptRoot 'scene-recovery.ps1')
+. (Join-Path $PSScriptRoot 'startup-tcp-tables.ps1')
+$env:DREAMSKIN_COMPAT_PROFILE='0'
+
+function Get-DreamSkinPortListeners {
+    param([int]$Port)
+    return @(Get-CodexStartupTcpListeners -Port $Port)
+}
 
 if (-not (Get-Variable -Name CodexProxyOriginalDirectLaunch -Scope Script -ErrorAction SilentlyContinue)) {
     $originalDirect = Get-Item -LiteralPath 'Function:\Start-DreamSkinCodexDirect' -ErrorAction Stop
@@ -59,4 +67,48 @@ $sceneLibraryHelper = Join-Path (Split-Path -Parent $PSScriptRoot) 'codex-scene-
 if ($sceneLibraryAction -eq 'ListWallpaperEngine' -and (Test-Path -LiteralPath $sceneLibraryHelper -PathType Leaf)) {
     . $sceneLibraryHelper
     Update-SceneBridgeLibrary | Out-Null
+}
+
+# Resume scene playback only after the upstream launcher has recorded the new
+# browser identity. Old stream URLs cannot survive a complete Codex restart.
+if ((Get-Command Write-DreamSkinState -ErrorAction SilentlyContinue) -and
+    -not (Get-Variable CodexSceneOriginalStateWriter -Scope Script -ErrorAction SilentlyContinue)) {
+    $script:CodexSceneOriginalStateWriter=(Get-Item 'Function:\Write-DreamSkinState').ScriptBlock
+    function Write-DreamSkinState {
+        param([Parameter(Mandatory=$true)][string]$Path,[Parameter(Mandatory=$true)][object]$State)
+        & $script:CodexSceneOriginalStateWriter -Path $Path -State $State
+        $root=Split-Path -Parent $Path
+        $bridge=Join-Path (Split-Path -Parent $PSScriptRoot) 'codex-dynamic-skin-trial\scene-runtime'
+        Start-CodexSceneRecovery -State $State -SkinRoot $root -BridgeRoot $bridge -Background
+    }
+}
+
+# A renderer/media startup failure must not silently close the user's window
+# and reopen a different, unskinned client. Explicit restart/restore still uses
+# the original exact-package and lifecycle checks.
+if ((Get-Command Stop-DreamSkinCodex -ErrorAction SilentlyContinue) -and
+    -not (Get-Variable CodexSceneOriginalStop -Scope Script -ErrorAction SilentlyContinue)) {
+    $script:CodexSceneOriginalStop=(Get-Item 'Function:\Stop-DreamSkinCodex').ScriptBlock
+    function Stop-DreamSkinCodex {
+        param([Parameter(Mandatory=$true)][object]$Codex,[AllowEmptyCollection()][int[]]$PreserveProcessIds=@(),[switch]$AllowForce)
+        $failure=Get-Variable -Name startupError -ValueOnly -ErrorAction SilentlyContinue
+        $foregroundFailure=Get-Variable -Name foregroundError -ValueOnly -ErrorAction SilentlyContinue
+        if($failure-or$foregroundFailure){throw 'Skin startup failed; Codex was preserved instead of closing and reopening without its skin.'}
+        & $script:CodexSceneOriginalStop -Codex $Codex -PreserveProcessIds $PreserveProcessIds -AllowForce:$AllowForce
+    }
+}
+
+if ((Get-Command Invoke-DreamSkinNative -ErrorAction SilentlyContinue) -and
+    -not (Get-Variable CodexSceneOriginalNative -Scope Script -ErrorAction SilentlyContinue)) {
+    $script:CodexSceneOriginalNative=(Get-Item 'Function:\Invoke-DreamSkinNative').ScriptBlock
+    function Invoke-DreamSkinNative {
+        param([Parameter(Mandatory=$true)][string]$FilePath,[string[]]$ArgumentList=@(),[switch]$DiscardStderr)
+        $category=Get-Variable -Name startFailureCategory -ValueOnly -ErrorAction SilentlyContinue
+        if($category-ceq'renderer-verification-failed'-and$ArgumentList-contains'--once'){
+            # The watcher is already applying the theme. Recheck it rather than
+            # entering the upstream one-shot fallback with its different payload contract.
+            $ArgumentList=@($ArgumentList|ForEach-Object{if($_-ceq'--once'){'--verify'}else{$_}})
+        }
+        & $script:CodexSceneOriginalNative -FilePath $FilePath -ArgumentList $ArgumentList -DiscardStderr:$DiscardStderr
+    }
 }

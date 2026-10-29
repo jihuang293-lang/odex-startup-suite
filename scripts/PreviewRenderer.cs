@@ -96,13 +96,16 @@ internal static class PreviewRenderer {
  static BitmapSource Frame(Config config,BitmapSource poster,double time) {
   var scene=new CinematicScene(config,poster);scene.SetLaunchState(time>=10.2,time>=10.2,time>=11.2);scene.SetTime(time);
   var panel=new Grid {Width=W,Height=H,Background=Brushes.Black};
-  panel.Children.Add(new Image {Source=poster,Stretch=Stretch.UniformToFill});panel.Children.Add(scene);
+  panel.Children.Add(scene);
   panel.Measure(new Size(W,H));panel.Arrange(new Rect(0,0,W,H));panel.UpdateLayout();return Bitmap(panel,W,H);
  }
  [STAThread] public static int Main(string[] args) {
   try {
    string root=Path.GetFullPath(args[0]);Directory.CreateDirectory(root);string frames=Path.Combine(root,"frames");Directory.CreateDirectory(frames);
    var config=Entry.ReadConfigFile(args[1]);bool custom=args.Length>2;var poster=custom?Load(args[2]):Artwork();
+   // This headless preview supplies a still frame, so the scene must retain
+   // that image after colorization rather than reveal a nonexistent video.
+   config.Video=custom?Path.GetFullPath(args[2]):"preview-generated.png";config.ScenePoster=false;
    if(File.Exists(Path.Combine(root,"wallpaper-engine-source.jpg")))Feature(root,config,poster);
    double[] moments={1.6,3.95,5.8,9.8};string[] labels={"01 / INITIALIZE","02 / DISPERSE","03 / RECONSTRUCT","04 / WELCOME"};
    var contact=new DrawingVisual();using(var d=contact.RenderOpen()) {

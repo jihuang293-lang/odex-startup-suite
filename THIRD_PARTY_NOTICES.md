@@ -8,7 +8,7 @@ The staged visual sequence was inspired by [yanami-sec/codex-startup-animation-w
 
 ## Codex Dynamic Skin
 
-[CCDawn/Codex-Dynamic-Skin](https://github.com/CCDawn/Codex-Dynamic-Skin), v1.7.3, is an external dependency, not redistributed here. Obtain it from its upstream release and follow its license and notices. This suite adds a version-checked hook to its extracted runtime scripts; it does not change the manager executable or official Codex files. The scene bridge implements the existing SceneViewer interface and is not an upstream official SceneViewer binary.
+[CCDawn/Codex-Dynamic-Skin](https://github.com/CCDawn/Codex-Dynamic-Skin), v1.7.3, is an external dependency, not redistributed here. Obtain it from its upstream release and follow its license and notices. This suite adds a version-checked hook to its extracted runtime scripts and a small reversible source transformation of its watcher retry policy. It does not change the manager executable or official Codex files. The full upstream watcher is not bundled. The scene bridge implements the existing SceneViewer interface and is not an upstream official SceneViewer binary.
 
 ## FFmpeg
 

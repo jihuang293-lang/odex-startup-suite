@@ -20,3 +20,26 @@ foreach($case in @('ready','loading-shell','wrong-theme','wallpaper-loading','hi
     if($actual -ne ($case -eq 'ready')){throw "Incorrect readiness: $case"}
 }
 'PASS: only a visible, complete interface with the selected wallpaper can release the transition.'
+[IO.File]::WriteAllText($theme,'{"id":"selected-theme","media":{"type":"scene"}}')
+foreach($case in @('streaming','dead-stream','no-chunks','stream-error')){
+ $data=($valid|ConvertTo-Json -Depth 8)|ConvertFrom-Json
+ $data.targets[0].result|Add-Member mediaStream $true
+ $stats=[pscustomobject]@{status='streaming';chunks=4;error=$null}
+ switch($case){'dead-stream'{$stats.status='error'};'no-chunks'{$stats.chunks=0};'stream-error'{$stats.error='Failed to fetch'}}
+ $data.targets[0].result|Add-Member streamStats $stats
+ [IO.File]::WriteAllText($report,($data|ConvertTo-Json -Depth 8))
+ if((Test-CodexAppearanceReady -VerificationPath $report -ThemePath $theme)-ne($case-eq'streaming')){throw ('Scene transport readiness incorrect: '+$case)}
+}
+'PASS: scene handoff requires a live streaming transport with received chunks and no error.'
+foreach($case in @('old-revision','wrong-version','media-element-missing','transparent-media')){
+ $data=($valid|ConvertTo-Json -Depth 8)|ConvertFrom-Json
+ $result=$data.targets[0].result
+ switch($case){
+  'old-revision'{$result|Add-Member expectedRevision 'current';$result|Add-Member revision 'previous'}
+  'wrong-version'{$result|Add-Member expectedVersion '1.7.3';$result|Add-Member version 'old'}
+  'media-element-missing'{$result|Add-Member mediaPresent $false}
+  'transparent-media'{$result|Add-Member mediaElementOpacity '0'}
+ }
+ if(Test-CodexAppearanceReport -Report $data -Theme @{id='selected-theme'}){throw ('Incomplete skin incorrectly accepted: '+$case)}
+}
+'PASS: stale revisions, mismatched versions, missing media and invisible media are rejected.'

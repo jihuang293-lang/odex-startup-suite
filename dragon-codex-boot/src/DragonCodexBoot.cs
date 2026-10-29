@@ -23,12 +23,14 @@ using System.Windows.Threading;
 
 namespace DragonCodexBoot {
  public sealed class Config {
-  public Config() { AutoReplaceEntrypoints=false; ScanAllLocalDrives=false; LaunchClient=false; TransitionMode="Cinematic"; MinimumSeconds=7; FadeSeconds=.9; ShowWelcome=true; WelcomeTitle="Welcome back to Codex."; WelcomeSubtitle="Pick up where you left off."; }
+  public Config() { AutoAesthetics=true; AutoReplaceEntrypoints=false; ScanAllLocalDrives=false; LaunchClient=false; TransitionMode="Cinematic"; MinimumSeconds=7; FadeSeconds=.9; ShowWelcome=true; WelcomeTitle="Welcome back to Codex."; WelcomeSubtitle="Pick up where you left off."; }
+  public bool AutoAesthetics {get;set;}
   public bool ShowSkipButton { get; set; }
   public bool ShowWelcome { get; set; }
   public string WelcomeTitle { get; set; }
   public string WelcomeSubtitle { get; set; }
   public bool FollowSkin { get; set; }
+  public bool ScenePoster { get; set; }
   public bool FitToClient { get; set; }
   public string CustomVideo { get; set; }
   public string TransitionMode { get; set; }
@@ -264,14 +266,15 @@ namespace DragonCodexBoot {
     if(client.Width>=450&&client.Height>=280&&client.Width<=7680&&client.Height<=4320)initialBounds=client;
    }
    Width=initialBounds.Width;Height=initialBounds.Height;WindowStartupLocation=WindowStartupLocation.Manual;
-   Grid grid=new Grid();
+   Grid grid=new Grid {ClipToBounds=true};
    media=new MediaElement { LoadedBehavior=MediaState.Manual,UnloadedBehavior=MediaState.Manual,
-    Stretch=SimpleFade?Stretch.UniformToFill:Stretch.Uniform,ScrubbingEnabled=true,Volume=Geometry.Clamp(cfg.Volume) };
+    Stretch=IsCinematic?Stretch.Uniform:SimpleFade?Stretch.UniformToFill:Stretch.Uniform,ScrubbingEnabled=true,Volume=Geometry.Clamp(cfg.Volume) };
    grid.Children.Add(media);
    wallpaperImage=new Image { Stretch=Stretch.UniformToFill,Visibility=Visibility.Collapsed };
    grid.Children.Add(wallpaperImage);
    if(IsCinematic) {
     cinematic=new CinematicScene(c,PosterCache.Prepare(root,Path.GetFullPath(Path.Combine(root,c.Video))));
+    if(cinematic.Analysis!=null)Log("aesthetic-applied; effect="+cinematic.EffectStyle+"; cached="+cinematic.Analysis.CacheHit+"; analysis-ms="+cinematic.Analysis.AnalysisMilliseconds.ToString("F1",System.Globalization.CultureInfo.InvariantCulture));
     grid.Children.Add(cinematic);
    }
    welcome=new StackPanel {HorizontalAlignment=HorizontalAlignment.Left,VerticalAlignment=VerticalAlignment.Bottom,
@@ -314,7 +317,7 @@ namespace DragonCodexBoot {
     if(SimpleFade&&(ext==".png"||ext==".jpg"||ext==".jpeg"||ext==".bmp")) {
      var bitmap=new System.Windows.Media.Imaging.BitmapImage();bitmap.BeginInit();
      bitmap.CacheOption=System.Windows.Media.Imaging.BitmapCacheOption.OnLoad;bitmap.UriSource=new Uri(asset);bitmap.EndInit();bitmap.Freeze();
-     wallpaperImage.Source=bitmap;wallpaperImage.Visibility=Visibility.Visible;media.Visibility=Visibility.Collapsed;
+     wallpaperImage.Source=bitmap;wallpaperImage.Visibility=IsCinematic?Visibility.Collapsed:Visibility.Visible;media.Visibility=Visibility.Collapsed;
      opened=true;simpleOpenedAt=wall.Elapsed.TotalSeconds;Log("wallpaper-image-opened");
     } else { media.Source=new Uri(asset);media.Play(); }
     timer.Start();Log("started fixed-player="+initialBounds.Width+"x"+initialBounds.Height
@@ -323,7 +326,7 @@ namespace DragonCodexBoot {
    media.MediaOpened+=delegate {
     opened=true;Bounds actual=Native.ClientBounds(host);
     if(SimpleFade)simpleOpenedAt=wall.Elapsed.TotalSeconds;
-    if(IsCinematic) {media.Pause();media.Position=TimeSpan.Zero;media.Volume=0;}
+    if(IsCinematic) {media.Pause();media.Position=TimeSpan.FromSeconds(PosterCache.VideoStartTime(root,Path.GetFullPath(Path.Combine(root,cfg.Video))));media.Volume=0;}
     Log("media-opened player-client="+actual.Width+"x"+actual.Height+" at "+actual.Left+","+actual.Top);
     Native.SetForegroundWindow(host);
    };
@@ -468,12 +471,12 @@ namespace DragonCodexBoot {
    }
    cinematic.SetLaunchState(ready,cinematicExitAt>=0,cinematicBlendAt>=0);
    cinematic.SetTime(t);
-   string stage=CinematicTiming.Stage(t);
+   string stage=CinematicTiming.Stage(cinematic.VisualSeconds);
    if(stage!=cinematicStage) {cinematicStage=stage;Log("cinematic-stage="+stage);}
    // Keep the real wallpaper moving while waiting for the proxy/skin launcher's ready signal.
    if(cinematicExitAt<0) {
     media.Volume=cfg.Volume*Geometry.Ease((t-6.6)/.5);
-    if(t>=CinematicTiming.ExitAt(cfg)&&ready) {
+    if(cinematic.ReadyToHandoff&&ready) {
      cinematicExitAt=now;cinematicDockFrom=initialBounds;cinematicDockTo=Native.AppBounds(target);
      Log("cinematic-dock-started; verified-and-stable=True; from="+FormatBounds(cinematicDockFrom)+"; to="+FormatBounds(cinematicDockTo));
     }
@@ -572,6 +575,7 @@ namespace DragonCodexBoot {
    Config config=ReadConfig(root);
    WallpaperSource source=MediaResolver.Resolve(config,root,MediaResolver.CurrentThemePath());
    config.Video=source.MediaPath;
+   config.ScenePoster=source.IsScene;
    var serializer=new JavaScriptSerializer();
    File.WriteAllText(Path.Combine(root,"launcher.runtime.json"),serializer.Serialize(config),new UTF8Encoding(false));
    File.WriteAllText(Path.Combine(root,"last-media.json"),serializer.Serialize(new {
@@ -580,6 +584,17 @@ namespace DragonCodexBoot {
    return config;
   }
   private static bool Finite(double n) { return !Double.IsNaN(n)&&!Double.IsInfinity(n); }
+  public static void ApplyStartupReadySignal(Config config,string root,string[] args) {
+   int index=Array.IndexOf(args,"--ready-file");
+   if(index<0)return;
+   if(index+1>=args.Length||Array.LastIndexOf(args,"--ready-file")!=index)throw new ArgumentException("Invalid startup readiness signal.");
+   string path=Path.GetFullPath(args[index+1]);
+   string directory=Path.GetFullPath(root).TrimEnd('\\','/');
+   if(!String.Equals(Path.GetDirectoryName(path),directory,StringComparison.OrdinalIgnoreCase)||
+      !System.Text.RegularExpressions.Regex.IsMatch(Path.GetFileName(path),@"^client-ready\.[a-f0-9]{32}\.flag$"))
+    throw new ArgumentException("Startup readiness signal must belong to this animation session.");
+   config.ReadyFile=path;
+  }
   public static void ValidateConfig(Config c) {
    if(c!=null&&(c.TransitionMode=="SimpleFade"||c.TransitionMode=="Cinematic")&&(!Finite(c.MinimumSeconds)||!Finite(c.FadeSeconds)||
       c.MinimumSeconds<1||c.MinimumSeconds>30||c.FadeSeconds<.25||c.FadeSeconds>3))
@@ -660,6 +675,10 @@ namespace DragonCodexBoot {
      // Every entry point resolves the live skin; a previous runtime file is
      // diagnostic output, never the authority for the selected wallpaper.
      Config c=RefreshStartupMedia(root);
+     // Wallpaper selection always follows the live skin. The launcher's
+     // per-player signal is supplied separately, after that refresh, so the
+     // ordinary global setting cannot overwrite an in-flight session's flag.
+     ApplyStartupReadySignal(c,root,args);
      if(!File.Exists(Path.GetFullPath(Path.Combine(root,c.Video))))throw new Exception("未找到启动视频。请先运行scripts/Import-Animation.ps1导入自己的MP4，或修改launcher.json的Video路径。");
      if(c.AutoReplaceEntrypoints) {
       try { Integrate(root,"Auto",false); }

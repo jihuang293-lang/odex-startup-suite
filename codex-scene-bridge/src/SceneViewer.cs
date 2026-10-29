@@ -9,6 +9,7 @@ using System.IO;
 using System.Net;
 using System.Net.Sockets;
 using System.Runtime.InteropServices;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
@@ -235,12 +236,78 @@ namespace CodexSceneBridge {
   }
  }
 
+ internal static class ScenePosterCache {
+  internal static double Quality(string path,int width,int height) {
+   Validate(path,width,height);
+   using(var image=new System.Drawing.Bitmap(path)){
+    const int w=96,h=54;double[] luma=new double[w*h];int[] histogram=new int[256];double mean=0,sharp=0;int edges=0;
+    for(int y=0;y<h;y++)for(int x=0;x<w;x++){
+     var color=image.GetPixel((int)((x+.5)*image.Width/w),(int)((y+.5)*image.Height/h));double value=(.2126*color.R+.7152*color.G+.0722*color.B)/255;
+     luma[y*w+x]=value;mean+=value;histogram[(int)(value*255)]++;
+    }
+    mean/=w*h;
+    for(int y=1;y<h-1;y++)for(int x=1;x<w-1;x++){
+     int i=y*w+x;double gx=luma[i+1]-luma[i-1],gy=luma[i+w]-luma[i-w],edge=Math.Sqrt(gx*gx+gy*gy);sharp+=Math.Min(.5,edge);edges++;
+    }
+    int low=0,high=255,sum=0;for(int i=0;i<256;i++){sum+=histogram[i];if(sum>=w*h*.05){low=i;break;}}
+    sum=0;for(int i=0;i<256;i++){sum+=histogram[i];if(sum>=w*h*.95){high=i;break;}}
+    return (high-low)/255.0*2+sharp/edges*3-Math.Abs(mean-.45)*.8;
+   }
+  }
+  internal static string SelectBest(string[] paths,int width,int height,out double score) {
+   string best=null;score=Double.NegativeInfinity;
+   foreach(string path in paths)try{double candidate=Quality(path,width,height);if(candidate>score){score=candidate;best=path;}}catch(IOException){}catch(ArgumentException){}
+   if(best==null)throw new IOException("No complete nonblack scene frame was available for selection.");return best;
+  }
+  internal static void Validate(string path,int expectedWidth,int expectedHeight) {
+   Options.SafePath(path);
+   var file=new FileInfo(path);
+   if(!file.Exists||file.Length<128||file.Length>10*1024*1024)throw new IOException("Poster capture did not produce a bounded image.");
+   using(var image=new System.Drawing.Bitmap(path)) {
+    if(image.Width!=expectedWidth||image.Height!=expectedHeight||image.Width<320||image.Height<180||image.Width>1920||image.Height>1080)throw new IOException("Poster dimensions do not match the dedicated scene stream.");
+    int lit=0;for(int y=0;y<18;y++)for(int x=0;x<32;x++){var pixel=image.GetPixel((int)((x+.5)*image.Width/32),(int)((y+.5)*image.Height/18));if(Math.Max(pixel.R,Math.Max(pixel.G,pixel.B))>24)lit++;}
+    if(lit<6)throw new IOException("Scene is still showing a black loading frame.");
+   }
+  }
+  private static void Replace(string temporary,string destination) {
+   Options.SafePath(destination);
+   if(File.Exists(destination))File.Replace(temporary,destination,null);else File.Move(temporary,destination);
+  }
+  internal static void Publish(string temporary,string destination,string id,int width,int height,int sampleCount=1,double frameQualityScore=0) {
+   if(!Regex.IsMatch(id??"","\\A[0-9]{1,20}\\z")||!String.Equals(Path.GetFileName(destination),id+".jpg",StringComparison.Ordinal))throw new InvalidDataException("Invalid scene poster identity.");
+   Validate(temporary,width,height);
+   string hash;using(var sha=SHA256.Create())using(var input=File.OpenRead(temporary))hash=BitConverter.ToString(sha.ComputeHash(input)).Replace("-","").ToLowerInvariant();
+   string metadata=Path.ChangeExtension(destination,".json"),pending=metadata+"."+Process.GetCurrentProcess().Id+"."+Guid.NewGuid().ToString("N")+".tmp";
+   Options.SafePath(metadata);Options.SafePath(pending);
+   try {
+    var record=new {schemaVersion=1,source="rendered-scene",workshopId=id,width=width,height=height,capturedAt=DateTimeOffset.UtcNow.ToString("o"),imageSha256=hash,sampleCount=sampleCount,frameQualityScore=frameQualityScore};
+    File.WriteAllText(pending,new JavaScriptSerializer().Serialize(record),new UTF8Encoding(false));
+    // An old marker can never authenticate a newly replaced thumbnail: the digest
+    // must match. Readers retry during the tiny interval between these replaces.
+    Replace(temporary,destination);Replace(pending,metadata);
+   }finally{if(File.Exists(pending))try{File.Delete(pending);}catch{}}
+  }
+ }
+
  internal sealed class Bridge : IDisposable {
   private readonly Options options;private readonly ManualResetEventSlim stop=new ManualResetEventSlim(),ready=new ManualResetEventSlim();private readonly object gate=new object();
   private readonly List<StreamPeer> peers=new List<StreamPeer>();private readonly Queue<string> errors=new Queue<string>();
-  private TcpListener listener;private Process encoder,relay;private byte[] initialization,latest;private string windowName;private int disposed,connectionCount;private bool openedWindow;private volatile bool failed;
+  private readonly object snapshotGate=new object();
+  private TcpListener listener;private Process encoder,relay,snapshotProcess;private Task posterWorker;private byte[] initialization,latest;private string windowName;private int disposed,connectionCount;private bool openedWindow;private volatile bool failed;
   public Bridge(Options value){options=value;}
   private void Error(string message){Console.Error.WriteLine("scene-bridge: "+message);}
+  private void PosterEvent(string message) {
+   try {
+    string id=Path.GetFileName(Path.GetDirectoryName(options.Scene));
+    if(!Regex.IsMatch(id??"","\\A[0-9]{1,20}\\z"))return;
+    string directory=Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"poster-cache"),path=Path.Combine(directory,"poster-diagnostics.log");
+    Options.SafePath(directory);Options.SafePath(path);Directory.CreateDirectory(directory);
+    message=Regex.Replace(message??"","/[a-fA-F0-9]{48}/","/<token>/").Replace('\r',' ').Replace('\n',' ');
+    if(message.Length>768)message=message.Substring(0,768);
+    string line=DateTimeOffset.UtcNow.ToString("o")+" pid="+Process.GetCurrentProcess().Id+" workshopId="+id+" "+message+Environment.NewLine;
+    if(File.Exists(path)&&new FileInfo(path).Length>65536)File.WriteAllText(path,line,new UTF8Encoding(false));else File.AppendAllText(path,line,new UTF8Encoding(false));
+   }catch{}
+  }
   private void EngineCommand(params string[] arguments) {
    using(var command=Process.Start(new ProcessStartInfo(options.Engine,Entry.Arguments(arguments)){UseShellExecute=false,CreateNoWindow=true,WindowStyle=ProcessWindowStyle.Hidden,WorkingDirectory=Path.GetDirectoryName(options.Engine)})) {
     if(!command.WaitForExit(5000))throw new InvalidOperationException("Wallpaper Engine control command timed out.");
@@ -258,27 +325,68 @@ namespace CodexSceneBridge {
    if(!ready.IsSet){failed=true;throw new InvalidOperationException("The scene capture did not produce valid fragmented video. "+LastError());}
    int port=((IPEndPoint)listener.LocalEndpoint).Port;
    string streamUrl="http://127.0.0.1:"+port+"/"+options.Token+"/stream.mp4";
-   PreparePoster(streamUrl);
    StartRelay(streamUrl);
    Console.WriteLine("scene-viewer: stream ready "+streamUrl);Console.Out.Flush();
+   PosterEvent("worker-scheduled");
+   posterWorker=Task.Run(delegate {PreparePosters(streamUrl);});
    stop.Wait();return failed?1:0;
   }
-  private void PreparePoster(string streamUrl) {
-   string temporary=null;
+  private void PreparePosters(string streamUrl) {
+   // Poster work must never delay relay readiness or the application's launch.
+   // Scene assets can take several seconds to appear after the first black frame.
+   var watch=Stopwatch.StartNew();
+   int workers,completion;ThreadPool.GetAvailableThreads(out workers,out completion);PosterEvent("worker-started; available-workers="+workers);
+   foreach(int at in new int[]{1,4,12,30}) {
+    int delay=(int)Math.Max(0,at*1000-watch.ElapsedMilliseconds);
+    if(stop.Wait(delay))return;
+    PosterEvent("attempt-start; schedule-second="+at+"; elapsed-ms="+watch.ElapsedMilliseconds);
+    if(PreparePoster(streamUrl))return;
+   }
+   if(!stop.IsSet){PosterEvent("attempts-exhausted");Error("No rendered scene poster was captured after four attempts; the existing image was preserved.");}
+  }
+  private void CancelOwnedSnapshot() {
+   lock(snapshotGate) {
+    if(snapshotProcess!=null)try{if(!snapshotProcess.HasExited)snapshotProcess.Kill();}catch{}
+   }
+  }
+  private bool PreparePoster(string streamUrl) {
+   string temporary=null;var samples=new List<string>();
    try {
     string directory=Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"poster-cache");Options.SafePath(directory);Directory.CreateDirectory(directory);
     string id=Path.GetFileName(Path.GetDirectoryName(options.Scene)),destination=Path.Combine(directory,id+".jpg");
-    temporary=Path.Combine(directory,id+"."+Process.GetCurrentProcess().Id+".tmp.jpg");
-    var arguments=new string[]{"-hide_banner","-loglevel","error","-rw_timeout","3000000","-i",streamUrl,"-frames:v","1","-q:v","3","-y",temporary};
-    using(var snapshot=Process.Start(new ProcessStartInfo(options.Ffmpeg,Entry.Arguments(arguments)){UseShellExecute=false,CreateNoWindow=true,WindowStyle=ProcessWindowStyle.Hidden,RedirectStandardError=true})) {
-     var errors=snapshot.StandardError.ReadToEndAsync();
-     if(!snapshot.WaitForExit(4000)){snapshot.Kill();throw new IOException("Poster preparation timed out.");}
-     if(snapshot.ExitCode!=0||!File.Exists(temporary)||new FileInfo(temporary).Length<128||new FileInfo(temporary).Length>10*1024*1024)throw new IOException("Poster preparation did not produce a valid image.");
+    string prefix=Path.Combine(directory,id+"."+Process.GetCurrentProcess().Id+"."+Guid.NewGuid().ToString("N"));
+    temporary=prefix+".%02d.tmp.jpg";
+    for(int i=0;i<3;i++)samples.Add(prefix+"."+i.ToString("00")+".tmp.jpg");
+    var arguments=new string[]{"-nostdin","-hide_banner","-loglevel","error","-rw_timeout","3000000","-i",streamUrl,"-ss","1","-vf","fps=1","-frames:v","3","-start_number","0","-pix_fmt","yuvj420p","-q:v","3","-y",temporary};
+    Process snapshot;
+    lock(snapshotGate) {
+     if(stop.IsSet)return false;
+     // A background decoder must never inherit the JSON control pipe. FFmpeg's
+     // console-input reader otherwise holds that pipe and stalls process exit
+     // even after it has already written the requested JPEG.
+     snapshot=Process.Start(new ProcessStartInfo(options.Ffmpeg,Entry.Arguments(arguments)){UseShellExecute=false,CreateNoWindow=true,WindowStyle=ProcessWindowStyle.Hidden,RedirectStandardInput=true,RedirectStandardError=true});
+     snapshot.StandardInput.Close();
+     snapshotProcess=snapshot;
     }
-    Options.SafePath(destination);
-    if(File.Exists(destination))File.Replace(temporary,destination,null);else File.Move(temporary,destination);temporary=null;
-   }catch{Error("Scene poster preparation was skipped; the live stream remains available.");}
-   finally{if(temporary!=null)try{File.Delete(temporary);}catch{}}
+    try {
+     var errorTask=Task.Run(delegate {string last="",line;while((line=ReadBoundedLine(snapshot.StandardError,512,false))!=null)last=line;return last;});
+     var watch=Stopwatch.StartNew();
+     while(!snapshot.WaitForExit(100)) {
+      if(stop.IsSet||watch.ElapsedMilliseconds>=8000) {try{snapshot.Kill();}catch{};snapshot.WaitForExit(1000);if(stop.IsSet)return false;throw new IOException("Poster capture exceeded eight seconds.");}
+     }
+     if(stop.IsSet)return false;
+     if(snapshot.ExitCode!=0)throw new IOException("Poster decoder failed"+(errorTask.Wait(500)&&!String.IsNullOrEmpty(errorTask.Result)?": "+errorTask.Result:"."));
+    }finally {
+     lock(snapshotGate){if(ReferenceEquals(snapshotProcess,snapshot))snapshotProcess=null;}
+     snapshot.Dispose();
+    }
+    if(stop.IsSet)return false;
+    double quality;string selected=ScenePosterCache.SelectBest(samples.ToArray(),options.Width,options.Height,out quality);
+    ScenePosterCache.Publish(selected,destination,id,options.Width,options.Height,samples.Count,quality);temporary=null;
+    PosterEvent("poster-published; width="+options.Width+"; height="+options.Height+"; ranked-frames="+samples.Count+"; quality="+quality.ToString("F3",CultureInfo.InvariantCulture));
+    Error("Rendered scene poster cached at "+options.Width+"x"+options.Height+".");return true;
+   }catch(Exception error){if(!stop.IsSet){PosterEvent("attempt-failed; "+error.GetType().Name+": "+error.Message);Error("Scene poster attempt skipped: "+error.Message);}return false;}
+   finally{foreach(string file in samples)try{if(File.Exists(file))File.Delete(file);}catch{}}
   }
   private void StartRelay(string streamUrl) {
    relay=new Process {StartInfo=new ProcessStartInfo(options.Node,Entry.Arguments(new string[]{options.Relay,"--url",streamUrl})) {
@@ -337,6 +445,7 @@ namespace CodexSceneBridge {
   private static void WriteStatus(Stream stream,string status){byte[] bytes=Encoding.ASCII.GetBytes(HttpProtocol.Response(status,false));stream.Write(bytes,0,bytes.Length);}
   public void Dispose() {
    if(Interlocked.Exchange(ref disposed,1)!=0)return;stop.Set();try{if(listener!=null)listener.Stop();}catch{}
+   CancelOwnedSnapshot();if(posterWorker!=null)try{posterWorker.Wait(1500);}catch{}
    lock(gate){foreach(var peer in peers)peer.Dispose();peers.Clear();}
    if(relay!=null){try{if(!relay.HasExited){relay.StandardInput.WriteLine("{\"command\":\"shutdown\"}");relay.StandardInput.Flush();if(!relay.WaitForExit(2500))relay.Kill();}}catch{try{if(!relay.HasExited)relay.Kill();}catch{}}finally{relay.Dispose();}}
    if(encoder!=null){try{if(!encoder.HasExited){encoder.StandardInput.WriteLine("q");encoder.StandardInput.Flush();if(!encoder.WaitForExit(2000))encoder.Kill();}}catch{try{if(!encoder.HasExited)encoder.Kill();}catch{}}finally{encoder.Dispose();}}

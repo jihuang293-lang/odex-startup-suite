@@ -6,6 +6,8 @@ param(
     [switch]$Minimized,
     [switch]$WithoutAnimation,
     [switch]$PreviewAnimation,
+    [switch]$RestartAuthorized,
+    [switch]$NoErrorDialog,
     [string]$ManagerPath = (Join-Path (Split-Path -Parent $PSScriptRoot) 'codex-dynamic-skin-trial\CodexDreamSkinManager.exe')
 )
 
@@ -15,7 +17,10 @@ $ErrorActionPreference = 'Stop'
 Import-Module ([IO.Path]::Combine($PSHOME, 'Modules', 'Microsoft.PowerShell.Utility', 'Microsoft.PowerShell.Utility.psd1')) -ErrorAction Stop
 . (Join-Path $PSScriptRoot 'proxy-network.ps1')
 . (Join-Path $PSScriptRoot 'dragon-animation.ps1')
+. (Join-Path $PSScriptRoot 'cold-start-patch.ps1')
 $dragonPlayer = $null
+$launchMutex=$null
+$launchMutexOwned=$false
 $skinRoot = Join-Path $env:LOCALAPPDATA 'CodexDreamSkin'
 $runtimeRoot = Join-Path $skinRoot 'manager-runtime\1.7.3'
 $commonPath = Join-Path $runtimeRoot 'payload\scripts\common-windows.ps1'
@@ -152,6 +157,11 @@ function Install-CombinedLaunchHook {
 }
 
 try {
+    if(-not $CheckOnly -and -not $PrepareOnly){
+        $launchMutex=[Threading.Mutex]::new($false,'Local\CodexCombinedProxySkinLaunch')
+        try{$launchMutexOwned=$launchMutex.WaitOne(0)}catch [Threading.AbandonedMutexException]{$launchMutexOwned=$true}
+        if(-not$launchMutexOwned){Write-CombinedLaunchEvent -Stage 'launch-already-running';exit 0}
+    }
     Write-CombinedLaunchEvent -Stage 'launcher-started'
     if (-not (Test-Path -LiteralPath $managerPath)) { throw 'The installed skin manager was not found.' }
     if ((Get-FileHash -Algorithm SHA256 -LiteralPath $managerPath).Hash -cne $expectedManagerHash) {
@@ -195,17 +205,30 @@ try {
         if (-not $managerReady) { throw 'The skin manager did not finish initialization in time.' }
     }
     Install-CombinedLaunchHook
+    Install-CodexColdStartPatch -RuntimeRoot $runtimeRoot
     if ($ManagerOnly) { exit 0 }
+    # Keep startup independent of an optional remote compatibility lookup.
+    # This setting is inherited only by children of this launcher process.
+    $env:DREAMSKIN_COMPAT_PROFILE='0'
 
     $status = Get-CombinedLaunchStatus -Network $network
-    if ($status.Running -and (Test-CombinedAnimationRequested -WithoutAnimation:$WithoutAnimation)) {
-        $hiddenSession = Test-CodexWindowRecoveryNeeded -RuntimeRoot $runtimeRoot -SkinRoot $skinRoot
-        $status | Add-Member -NotePropertyName NeedsWindowRecovery -NotePropertyValue $hiddenSession -Force
-        Write-CombinedLaunchEvent -Stage 'window-preflight' -Detail ('hidden={0}; consent-before-cover=True' -f $hiddenSession)
+    $liveAppearanceReady=$false
+    if ($status.Running -and $status.RunningHasProxyFlag -and $status.RunningHasDebugFlag -and
+        (Test-CombinedAnimationRequested -WithoutAnimation:$WithoutAnimation)) {
+        $handoffWindow=Get-CodexHandoffWindow -ExecutablePath $status.Executable
+        if(-not$handoffWindow){$handoffWindow=Get-CodexHandoffWindow -ExecutablePath $status.Executable -TryActivate}
+        if(-not$handoffWindow){
+            Write-CombinedLaunchEvent -Stage 'window-unavailable-preserved' -Detail 'no-cover-created=True; app-preserved=True'
+            throw 'Codex is still running, but no visible window is available for the animation. The app was preserved. Open its window and try again.'
+        }
+        $status | Add-Member -NotePropertyName NeedsWindowRecovery -NotePropertyValue $false -Force
+        $liveAppearanceReady=Test-CodexLiveAppearanceReady -SkinRoot $skinRoot -RuntimeRoot $runtimeRoot
+        Write-CombinedLaunchEvent -Stage 'window-preflight' -Detail ('native-window=True; live-appearance={0}; no-restart=True' -f $liveAppearanceReady)
     }
     Write-CombinedLaunchEvent -Stage 'before-skin-start' -Detail (
         'running={0}; proxy={1}; skin={2}' -f $status.Running, $status.RunningHasProxyFlag, $status.RunningHasDebugFlag)
     $decision = Get-CombinedStartDecision -Status $status -ConfirmRestart {
+        if($RestartAuthorized){Write-CombinedLaunchEvent -Stage 'restart-authorized';return $true}
         Add-Type -AssemblyName System.Windows.Forms
         $messages = [IO.File]::ReadAllText((Join-Path $PSScriptRoot 'launcher-messages.json')) | ConvertFrom-Json
         $message = if ($status.NeedsWindowRecovery) { $messages.windowRestartMessage } else { $messages.restartMessage }
@@ -221,7 +244,7 @@ try {
     }
     if (-not $WithoutAnimation -and $status.RunningHasProxyFlag -and $status.RunningHasDebugFlag -and
         -not $status.NeedsWindowRecovery -and -not $decision.Parameters.RestartExisting -and
-        (Test-CodexAppearanceReady -VerificationPath (Join-Path $skinRoot 'verify.log') -ThemePath (Join-Path $skinRoot 'active-theme\theme.json'))) {
+        $liveAppearanceReady) {
         $dragonPlayer = Start-CombinedAnimation -Ready
         if ($dragonPlayer) { Write-CombinedLaunchEvent -Stage 'dragon-existing-ready-window' -Detail ('pid={0}; current-app-preserved=True' -f $dragonPlayer.Id) }
         exit 0
@@ -239,6 +262,7 @@ try {
     # Explicit restart is permitted only after the user chooses Yes above.
     # The runtime still verifies which installed app it may stop and relaunch.
     $startParameters = $decision.Parameters
+    if($status.Running-and$status.RunningHasProxyFlag-and$status.RunningHasDebugFlag-and-not$decision.Parameters.RestartExisting){$startParameters=@{}}
     & $startPath @startParameters
     if (-not $?) { throw 'The skin startup failed; inspect the skin manager diagnostics.' }
     $afterStatus = Get-CombinedLaunchStatus -Network $network
@@ -246,8 +270,13 @@ try {
         'running={0}; proxy={1}; skin={2}' -f $afterStatus.Running, $afterStatus.RunningHasProxyFlag, $afterStatus.RunningHasDebugFlag)
     if ($afterStatus.RunningHasProxyFlag -and $afterStatus.RunningHasDebugFlag) {
         if ($dragonPlayer) {
-            Complete-CodexDragonStartup
-            Write-CombinedLaunchEvent -Stage 'dragon-client-ready'
+            if(Complete-CodexDragonStartup -Player $dragonPlayer){
+                Write-CombinedLaunchEvent -Stage 'dragon-client-ready'
+            }elseif($dragonPlayer.HasExited){
+                Write-CombinedLaunchEvent -Stage 'dragon-cover-already-closed' -Detail 'no-second-ready-signal=True'
+            }else{
+                Write-CombinedLaunchEvent -Stage 'dragon-readiness-monitor-pending' -Detail 'independent-visible-skin-check=True; no-forced-ready=True'
+            }
         }
     } elseif ($dragonPlayer) {
         throw 'Codex did not retain both proxy and skin settings; animation handoff was not released.'
@@ -256,7 +285,10 @@ try {
     if ($CheckOnly -or $PrepareOnly) { Write-Error $_; exit 1 }
     Write-CombinedLaunchEvent -Stage 'launcher-error' -Detail ($_.ToString() + ' ' + $_.ScriptStackTrace)
     if ($dragonPlayer -and -not $dragonPlayer.HasExited) { $dragonPlayer.Kill() }
+    if($NoErrorDialog){Write-Error $_;exit 1}
     Add-Type -AssemblyName System.Windows.Forms
     [void][Windows.Forms.MessageBox]::Show($_.Exception.Message, 'Codex proxy + skin', 'OK', 'Information')
     exit 1
+} finally {
+    if($launchMutex){if($launchMutexOwned){$launchMutex.ReleaseMutex()};$launchMutex.Dispose()}
 }

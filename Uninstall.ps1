@@ -29,4 +29,7 @@ if (Test-Path -LiteralPath $common) {
         [IO.File]::WriteAllBytes($common,$bytes)
     }
 }
-'Owned shortcuts and matching integration hook removed. Suite files and all user data retained. Restore official appearance in the skin manager to close its debug session.'
+. (Join-Path $PSScriptRoot 'codex-proxy\scene-recovery.ps1')
+. (Join-Path $PSScriptRoot 'codex-proxy\cold-start-patch.ps1')
+$null=Restore-CodexColdStartPatch -RuntimeRoot (Join-Path $env:LOCALAPPDATA 'CodexDreamSkin\manager-runtime\1.7.3')
+'Owned shortcuts, matching integration hook and exact watcher patch removed. Suite files and all user data retained. Restore official appearance in the skin manager to close its debug session.'

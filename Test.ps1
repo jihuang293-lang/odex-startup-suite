@@ -26,7 +26,7 @@ foreach ($name in @('GeometryTests','MediaResolverTests','CinematicTests')) {
 & (Join-Path $root 'codex-scene-bridge\SceneViewer.exe') --self-test
 if ($LASTEXITCODE -ne 0) { throw 'Scene bridge self-test failed.' }
 $ps=Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe'
-foreach ($relative in @('codex-proxy\test-combined-launch.ps1','codex-proxy\test-restart-decision.ps1','codex-proxy\test-animation-entry.ps1','codex-proxy\test-appearance-readiness.ps1','codex-proxy\test-wallpaper-resolution.ps1','codex-scene-bridge\test-scene-library.ps1','tests\test-portable-config.ps1')) {
+foreach ($relative in @('codex-proxy\test-combined-launch.ps1','codex-proxy\test-restart-decision.ps1','codex-proxy\test-animation-entry.ps1','codex-proxy\test-appearance-readiness.ps1','codex-proxy\test-wallpaper-resolution.ps1','codex-proxy\test-live-appearance.ps1','codex-proxy\test-startup-readiness-monitor.ps1','codex-proxy\test-scene-recovery.ps1','codex-proxy\test-scene-session-lifetime.ps1','codex-proxy\test-startup-tcp-tables.ps1','codex-scene-bridge\test-scene-library.ps1','codex-scene-bridge\test-native-poster.ps1','dragon-codex-boot\tests\Test-PosterComposition.ps1','dragon-codex-boot\tests\Test-Aesthetics.ps1','tests\test-portable-config.ps1')) {
     & $ps -NoProfile -ExecutionPolicy RemoteSigned -File (Join-Path $root $relative)
     if ($LASTEXITCODE -ne 0) { throw ('Test failed: '+$relative) }
 }
@@ -34,5 +34,7 @@ foreach ($relative in @('codex-proxy\test-combined-launch.ps1','codex-proxy\test
 if ($LASTEXITCODE -ne 0) { throw 'Node syntax failed.' }
 & $NodePath (Join-Path $root 'codex-scene-bridge\test-scene-relay.mjs')
 if ($LASTEXITCODE -ne 0) { throw 'Scene relay tests failed.' }
+& $ps -NoProfile -ExecutionPolicy RemoteSigned -File (Join-Path $root 'tests\test-cold-start-tools.ps1')
+if($LASTEXITCODE-ne 0){throw 'Cold-start patch installation/restore tests failed.'}
 [pscustomobject]@{ok=$true;powerShellSyntaxFiles=$syntax;desktopUiOpened=$false;liveAppRestarted=$false;scope='Offline fixtures and build; not a clean-machine end-to-end launch'} | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $out 'result.json') -Encoding UTF8
 'PASS: build, configuration, media resolution, proxy integration, scene alias guards and scoped transport.'

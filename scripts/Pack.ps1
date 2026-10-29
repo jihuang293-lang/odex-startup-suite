@@ -1,4 +1,6 @@
-﻿$ErrorActionPreference='Stop'
+﻿[CmdletBinding()]
+param([ValidatePattern('^[0-9]+\.[0-9]+\.[0-9]+$')][string]$Version='0.2.0')
+$ErrorActionPreference='Stop'
 $root=Split-Path -Parent $PSScriptRoot
 . (Join-Path $PSScriptRoot 'Paths.ps1')
 & (Join-Path $root 'Build.ps1')
@@ -16,10 +18,10 @@ foreach ($relative in $files) {
     New-Item -ItemType Directory -Path (Split-Path -Parent $target) -Force | Out-Null
     Copy-Item -LiteralPath (Join-Path $root $relative) -Destination $target
 }
-foreach ($relative in @('dragon-codex-boot\CodexCinematicBoot.exe','dragon-codex-boot\DragonCodexBoot.exe','codex-scene-bridge\SceneViewer.exe')) { Copy-Item -LiteralPath (Join-Path $root $relative) -Destination (Join-Path $stage $relative) }
+foreach ($relative in @('dragon-codex-boot\CodexCinematicBoot.exe','dragon-codex-boot\DragonCodexBoot.exe','codex-scene-bridge\SceneViewer.exe','codex-proxy\CodexStartupNetwork.dll')) { Copy-Item -LiteralPath (Join-Path $root $relative) -Destination (Join-Path $stage $relative) }
 $manifest=@(Get-ChildItem -LiteralPath $stage -File -Recurse -Force | ForEach-Object { [pscustomobject]@{path=$_.FullName.Substring($stage.Length+1).Replace('\','/');sha256=(Get-FileHash -LiteralPath $_.FullName).Hash.ToLowerInvariant()} })
 [IO.File]::WriteAllText((Join-Path $stage 'SHA256SUMS.json'),($manifest|ConvertTo-Json -Depth 3),[Text.UTF8Encoding]::new($false))
-$zip=Join-Path $dist 'codex-startup-suite-v0.1.0-windows-x64.zip'
+$zip=Join-Path $dist ('codex-startup-suite-v'+$Version+'-windows-x64.zip')
 if (Test-Path -LiteralPath $zip) { throw 'Release archive already exists; preserve it or choose another version before packing again.' }
 Add-Type -AssemblyName System.IO.Compression
 Add-Type -AssemblyName System.IO.Compression.FileSystem

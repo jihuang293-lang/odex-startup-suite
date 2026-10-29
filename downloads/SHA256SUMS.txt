@@ -1,1 +1,2 @@
 779e86dcbddab8164af4571fbc7d8ced5710bdc9b5ea05bc68c3c4a99a96126c  codex-startup-suite-v0.1.0-windows-x64.zip
+c4c1d061c9284adf0eacb172a713037b741cbc063d2a2ece07dbdea46209a12f  codex-startup-suite-v0.2.0-windows-x64.zip
